@@ -547,7 +547,8 @@ function setup() {
     if (controls) {
         document.body.appendChild(controls);
     }
-    frameRate(144);
+    // Let requestAnimationFrame and the display refresh rate set the actual maximum.
+    frameRate(1000);
     imageMode(CENTER);
     rectMode(CENTER);
     textFont('monospace');

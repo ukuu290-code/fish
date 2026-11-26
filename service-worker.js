@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fish-striker-v18';
+const CACHE_NAME = 'fish-striker-v19';
 const APP_FILES = [
   './',
   './index.html',
