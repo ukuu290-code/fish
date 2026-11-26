@@ -1536,14 +1536,19 @@ function drawBackground() {
             backgroundLayer.ellipse(star.x, star.y, star.size);
         }
 
-        backgroundLayer.stroke(60, 110, 180);
-        backgroundLayer.strokeWeight(1);
-        backgroundLayer.noFill();
-        backgroundLayer.rect(width / 2, height - 45, width - 40, 40, 10);
         backgroundLayerStage = stage;
     }
 
     image(backgroundLayer, width / 2, height / 2);
+    if (!titleScreen && !gameOver && !clear && !upgradeSelection) {
+        push();
+        rectMode(CENTER);
+        noFill();
+        stroke(60, 110, 180);
+        strokeWeight(1);
+        rect(width / 2, height - 45, width - 40, 40, 10);
+        pop();
+    }
     noStroke();
     stroke(60, 110, 180);
     strokeWeight(1);
