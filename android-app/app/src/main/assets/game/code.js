@@ -2298,12 +2298,12 @@ function drawTitleScreen() {
     drawingContext.shadowBlur = 28;
     drawingContext.shadowColor = 'rgba(60, 180, 255, 0.2)';
     fill(5, 14, 31, 150);
-    rect(width / 2, height * 0.5, 570, 440, 20);
+    rect(width / 2, height * 0.5, 570, 480, 20);
     drawingContext.shadowBlur = 0;
     noFill();
     stroke(85, 170, 220, 90 + pulse * 45);
     strokeWeight(1.5);
-    rect(width / 2, height * 0.5, 570, 440, 20);
+    rect(width / 2, height * 0.5, 570, 480, 20);
     stroke(115, 225, 255, 155);
     line(120, height * 0.405, width - 120, height * 0.405);
     noStroke();
@@ -2339,7 +2339,7 @@ function drawTitleScreen() {
         ? `前回苦戦した「${bossTelegraphPatternLabels[playerRecord.rememberedAttack]}」を初手に使う`
         : 'まだボスの記憶はありません。最初の攻撃を見て学ぶ',
     width / 2, height * 0.695);
-    const achievementsButtonY = height * 0.72;
+    const achievementsButtonY = height * 0.735;
     fill(12, 38, 55, 235);
     stroke(85, 220, 235, 155 + pulse * 70);
     strokeWeight(1.5);
@@ -2356,7 +2356,7 @@ function drawTitleScreen() {
     text(gameSaveAvailable
         ? 'ENTER / 左クリックで続きから / N・SPACE で新規開始'
         : '新規開始 / ENTER / SPACE で開始',
-    width / 2, height * 0.76);
+    width / 2, height * 0.79);
     textStyle(NORMAL);
     pop();
 }
