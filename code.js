@@ -285,10 +285,16 @@ function startNextAchievementNotice() {
     playTone(523.25, 0.16, 0.035, 'sine');
     window.setTimeout(() => playTone(783.99, 0.18, 0.035, 'sine'), 90);
     window.setTimeout(() => playTone(1046.5, 0.28, 0.04, 'triangle'), 180);
-    spawnImpactRing(width / 2, 106, [110, 225, 255], 76, 30);
-    spawnImpactRing(width / 2, 106, [255, 215, 125], 48, 24);
-    spawnEffectBurst(width / 2, 106,
+    const noticePosition = getAchievementNoticePosition();
+    spawnImpactRing(noticePosition.x, noticePosition.y, [110, 225, 255], 76, 30);
+    spawnImpactRing(noticePosition.x, noticePosition.y, [255, 215, 125], 48, 24);
+    spawnEffectBurst(noticePosition.x, noticePosition.y,
         [[255, 225, 150], [110, 225, 255], [255, 255, 255]], 28, 3.8);
+}
+
+function getAchievementNoticePosition() {
+    const toastWidth = min(width - 24, 320);
+    return { x: toastWidth / 2 + 14, y: 150 };
 }
 
 function loadGameSave() {
@@ -2292,12 +2298,12 @@ function drawTitleScreen() {
     drawingContext.shadowBlur = 28;
     drawingContext.shadowColor = 'rgba(60, 180, 255, 0.2)';
     fill(5, 14, 31, 150);
-    rect(width / 2, height * 0.5, 570, 420, 20);
+    rect(width / 2, height * 0.5, 570, 440, 20);
     drawingContext.shadowBlur = 0;
     noFill();
     stroke(85, 170, 220, 90 + pulse * 45);
     strokeWeight(1.5);
-    rect(width / 2, height * 0.5, 570, 420, 20);
+    rect(width / 2, height * 0.5, 570, 440, 20);
     stroke(115, 225, 255, 155);
     line(120, height * 0.405, width - 120, height * 0.405);
     noStroke();
@@ -2350,7 +2356,7 @@ function drawTitleScreen() {
     text(gameSaveAvailable
         ? 'ENTER / 左クリックで続きから / N・SPACE で新規開始'
         : '新規開始 / ENTER / SPACE で開始',
-    width / 2, height * 0.75);
+    width / 2, height * 0.76);
     textStyle(NORMAL);
     pop();
 }
@@ -2459,8 +2465,9 @@ function drawAchievementNotice() {
     const slide = 1 - Math.pow(1 - entrance, 3);
     const fade = min(1, achievementNoticeFrames / 28);
     const toastWidth = min(width - 24, 320);
-    const toastX = lerp(-toastWidth / 2, width / 2, slide);
-    const toastY = 106;
+    const noticePosition = getAchievementNoticePosition();
+    const toastX = lerp(-toastWidth / 2, noticePosition.x, slide);
+    const toastY = noticePosition.y;
 
     push();
     rectMode(CENTER);
