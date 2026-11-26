@@ -21,6 +21,8 @@ let backgroundLayer = null;
 let backgroundLayerStage = 0;
 let simulationAccumulator = 0;
 let simulationFrame = 0;
+let visualAccumulator = 0;
+let visualFrame = 0;
 let lastSimulationUpdateAt = null;
 let player;
 let boss = null;
@@ -66,6 +68,7 @@ let fpsLastUpdatedAt = 0;
 let gameOver = false;
 let clear = false;
 let titleScreen = true;
+let paused = false;
 let score = 0;
 const maxLives = 3;
 let lives = maxLives;
@@ -426,8 +429,10 @@ function resumeSavedGame() {
     playerFireInterval = getRapidFireInterval(upgradeLevels.rapidFire);
     playerBulletSpeed = basePlayerBulletSpeed + upgradeLevels.rapidFire * 2;
     simulationAccumulator = 0;
+    visualAccumulator = 0;
     lastSimulationUpdateAt = millis();
     titleScreen = false;
+    paused = false;
     gameOver = false;
     clear = false;
     runRecordSaved = false;
@@ -542,7 +547,7 @@ function setup() {
     if (controls) {
         document.body.appendChild(controls);
     }
-    frameRate(60);
+    frameRate(144);
     imageMode(CENTER);
     rectMode(CENTER);
     textFont('monospace');
@@ -581,10 +586,13 @@ function bindTouchControls() {
     const buttons = document.querySelectorAll('[data-game-control]');
     const activePointers = new Map();
     const saveButton = document.querySelector('[data-game-save]');
+    const pauseButton = document.querySelector('[data-game-pause]');
     if (saveButton) saveButton.addEventListener('click', handleManualSave);
+    if (pauseButton) pauseButton.addEventListener('click', togglePause);
     window.addEventListener('keydown', event => {
         if (event.code === 'Space' || event.key === ' '
-            || event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
+            || event.code === 'ArrowLeft' || event.code === 'ArrowRight'
+            || event.code === 'Escape' || event.code === 'KeyP') {
             event.preventDefault();
         }
     }, { capture: true, passive: false });
@@ -633,6 +641,35 @@ function bindTouchControls() {
     });
     document.addEventListener('freeze', () => saveGameState(true));
     window.addEventListener('pagehide', () => saveGameState(true));
+}
+
+function togglePause() {
+    if (titleScreen || gameOver || clear || upgradeSelection) return;
+    paused = !paused;
+    if (paused) {
+        saveGameState(true);
+        touchControls.left = false;
+        touchControls.right = false;
+        touchControls.shoot = false;
+        touchControls.beam = false;
+        beamCharging = false;
+        beamMaxChargeLastUpdatedAt = null;
+        document.querySelectorAll('[data-game-control].is-pressed')
+            .forEach(button => button.classList.remove('is-pressed'));
+    }
+    simulationAccumulator = 0;
+    visualAccumulator = 0;
+    lastSimulationUpdateAt = millis();
+}
+
+function returnToTitle() {
+    if (!titleScreen && !gameOver && !clear) saveGameState(true);
+    paused = false;
+    titleScreen = true;
+    achievementsScreen = false;
+    simulationAccumulator = 0;
+    visualAccumulator = 0;
+    lastSimulationUpdateAt = millis();
 }
 
 function initEnemies() {
@@ -691,8 +728,18 @@ function draw() {
         : min(max(0, now - lastSimulationUpdateAt), 100);
     lastSimulationUpdateAt = now;
 
+    if (!paused) {
+        visualAccumulator += elapsed;
+        while (visualAccumulator >= simulationStepMs) {
+            visualAccumulator -= simulationStepMs;
+            visualFrame++;
+            updateVisualEffects();
+        }
+    } else {
+        visualAccumulator = 0;
+    }
+
     if (titleScreen) {
-        decayScreenShake();
         if (achievementsScreen) {
             drawAchievementsScreen();
         } else {
@@ -706,7 +753,6 @@ function draw() {
     }
 
     if (gameOver) {
-        decayScreenShake();
         drawResult('GAME OVER');
         drawEffects();
         drawImpactFlash();
@@ -716,7 +762,6 @@ function draw() {
     }
 
     if (clear) {
-        decayScreenShake();
         drawResult('CLEAR!');
         drawEffects();
         drawImpactFlash();
@@ -726,7 +771,6 @@ function draw() {
     }
 
     if (upgradeSelection) {
-        decayScreenShake();
         drawUpgradeSelection();
         drawEffects();
         drawImpactFlash();
@@ -735,21 +779,24 @@ function draw() {
         return;
     }
 
-    simulationAccumulator += elapsed;
-    while (simulationAccumulator >= simulationStepMs) {
-        simulationAccumulator -= simulationStepMs;
-        simulationFrame++;
-        updateGame();
-        if (gameOver || clear || upgradeSelection) break;
+    if (!paused) {
+        simulationAccumulator += elapsed;
+        while (simulationAccumulator >= simulationStepMs) {
+            simulationAccumulator -= simulationStepMs;
+            simulationFrame++;
+            updateGame();
+            if (gameOver || clear || upgradeSelection) break;
+        }
+        saveGameState();
+    } else {
+        simulationAccumulator = 0;
     }
-    saveGameState();
 
     push();
     if (screenShakeFrames > 0) {
         translate(random(-screenShakeStrength, screenShakeStrength),
             random(-screenShakeStrength, screenShakeStrength));
     }
-    decayScreenShake();
     drawEnemies();
     drawBoss();
     drawBossTelegraph();
@@ -766,6 +813,23 @@ function draw() {
     drawImpactFlash();
     drawCombatBanner();
     drawAchievementNotice();
+    if (paused) drawPauseMenu();
+}
+
+function updateVisualEffects() {
+    updateEffects();
+    if (comboBannerFrames > 0) comboBannerFrames--;
+    if (bossDefeatFrames > 0) bossDefeatFrames--;
+    if (bossEntranceFrames > 0) bossEntranceFrames--;
+    decayScreenShake();
+    if (impactFlash > 0) {
+        impactFlash *= 0.72;
+        if (impactFlash < 2) impactFlash = 0;
+    }
+    if (achievementNoticeFrames > 0 && !achievementsScreen) {
+        achievementNoticeFrames--;
+        if (achievementNoticeFrames <= 0) startNextAchievementNotice();
+    }
 }
 
 function spawnEffectBurst(x, y, colors, count, speed) {
@@ -818,7 +882,7 @@ function registerEnemyDefeat(x, y, points) {
 function drawCombatBanner() {
     if (comboBannerFrames > 0) {
         const progress = comboBannerFrames / 54;
-        const pulse = 0.5 + sin(frameCount * 0.45) * 0.5;
+        const pulse = 0.5 + sin(visualFrame * 0.45) * 0.5;
         push();
         rectMode(CENTER);
         drawingContext.shadowBlur = 18 + pulse * 18;
@@ -839,12 +903,11 @@ function drawCombatBanner() {
         text(`${killCombo} HIT COMBO!`, width / 2, 126);
         textStyle(NORMAL);
         pop();
-        comboBannerFrames--;
     }
 
     if (bossDefeatFrames > 0) {
         const progress = bossDefeatFrames / 100;
-        const pulse = 0.5 + sin(frameCount * 0.35) * 0.5;
+        const pulse = 0.5 + sin(visualFrame * 0.35) * 0.5;
         push();
         drawingContext.shadowBlur = 24 + pulse * 24;
         drawingContext.shadowColor = 'rgba(255, 185, 70, 0.95)';
@@ -859,7 +922,6 @@ function drawCombatBanner() {
         line(width / 2 - 160 * progress, height * 0.43 + 34,
             width / 2 + 160 * progress, height * 0.43 + 34);
         pop();
-        bossDefeatFrames--;
     }
 }
 
@@ -884,24 +946,15 @@ function decayScreenShake() {
     }
 }
 
-function drawEffects() {
-    if (impactRings.length === 0 && effectParticles.length === 0) return;
-
+function updateEffects() {
     for (let i = impactRings.length - 1; i >= 0; i--) {
         const ring = impactRings[i];
-        const progress = 1 - ring.life / ring.maxLife;
-        const alpha = 220 * (1 - progress);
-        noFill();
-        stroke(ring.color[0], ring.color[1], ring.color[2], alpha);
-        strokeWeight(max(1, 5 * (1 - progress)));
-        ellipse(ring.x, ring.y, ring.maxRadius * progress);
         ring.life--;
         if (ring.life <= 0) {
             impactRings.splice(i, 1);
         }
     }
 
-    noStroke();
     for (let i = effectParticles.length - 1; i >= 0; i--) {
         const particle = effectParticles[i];
         particle.x += particle.vx;
@@ -912,9 +965,22 @@ function drawEffects() {
         if (particle.life <= 0) {
             effectParticles[i] = effectParticles[effectParticles.length - 1];
             effectParticles.pop();
-            continue;
         }
+    }
+}
 
+function drawEffects() {
+    for (const ring of impactRings) {
+        const progress = 1 - ring.life / ring.maxLife;
+        const alpha = 220 * (1 - progress);
+        noFill();
+        stroke(ring.color[0], ring.color[1], ring.color[2], alpha);
+        strokeWeight(max(1, 5 * (1 - progress)));
+        ellipse(ring.x, ring.y, ring.maxRadius * progress);
+    }
+
+    noStroke();
+    for (const particle of effectParticles) {
         const alpha = 255 * particle.life / particle.maxLife;
         const size = particle.size * particle.life / particle.maxLife;
         fill(particle.color[0], particle.color[1], particle.color[2], alpha);
@@ -931,8 +997,6 @@ function drawImpactFlash() {
     fill(impactFlashColor[0], impactFlashColor[1], impactFlashColor[2], impactFlash);
     rect(0, 0, width, height);
     pop();
-    impactFlash *= 0.72;
-    if (impactFlash < 2) impactFlash = 0;
 }
 
 function updateGame() {
@@ -1585,7 +1649,7 @@ function drawBoss() {
     }
     if (bossEntranceFrames > 0) {
         const progress = 1 - bossEntranceFrames / 100;
-        const pulse = 0.5 + sin(frameCount * 0.3) * 0.5;
+        const pulse = 0.5 + sin(visualFrame * 0.3) * 0.5;
         noFill();
         stroke(100, 225, 255, bossEntranceFrames * 1.8);
         strokeWeight(3);
@@ -1593,7 +1657,6 @@ function drawBoss() {
         stroke(255, 215, 110, bossEntranceFrames * 1.5);
         strokeWeight(1.5);
         ellipse(boss.x, boss.y, boss.size + 20 + progress * 90);
-        bossEntranceFrames--;
     }
 
     const barWidth = 330;
@@ -1638,7 +1701,7 @@ function drawBossTelegraph() {
     if (!boss || !boss.telegraph) return;
 
     const { pattern, timer, targetX, targetY } = boss.telegraph;
-    const pulse = 0.5 + sin(frameCount * 0.35) * 0.5;
+    const pulse = 0.5 + sin(visualFrame * 0.35) * 0.5;
     push();
     blendMode(BLEND);
     noFill();
@@ -1654,7 +1717,7 @@ function drawBossTelegraph() {
         strokeWeight(2);
         ellipse(boss.x, boss.y, boss.size + 32 + pulse * 12);
         for (let ray = 0; ray < 8; ray++) {
-            const angle = ray * TWO_PI / 8 + frameCount * 0.015;
+            const angle = ray * TWO_PI / 8 + visualFrame * 0.015;
             line(
                 boss.x + cos(angle) * (boss.size / 2 + 12),
                 boss.y + sin(angle) * (boss.size / 2 + 12),
@@ -1867,7 +1930,7 @@ function drawChargedBeams() {
         translate(beam.x, beam.y);
 
         const fade = constrain(beam.life / 9, 0, 1);
-        const phase = frameCount * 0.22;
+        const phase = visualFrame * 0.22;
         const top = -beam.height / 2;
         const bottom = beam.height / 2;
         const glowAlpha = constrain(beam.power / maxBeamCharge * 220, 90, 220) * fade;
@@ -1955,7 +2018,7 @@ function drawEnemyBombs() {
 }
 
 function drawPlayer() {
-    if (invulnerabilityFrames === 0 || floor(frameCount / 5) % 2 === 0) {
+    if (invulnerabilityFrames === 0 || floor(visualFrame / 5) % 2 === 0) {
         image(playerImg, player.x, player.y, player.size, player.size);
     }
 
@@ -1979,12 +2042,12 @@ function drawBeamChargeEffects() {
     noFill();
     stroke(red, green, blue, 80 + chargeRatio * 120);
     strokeWeight(1.5 + chargeRatio * 2);
-    ellipse(player.x, player.y - 18, 38 + chargeRatio * 26 + sin(frameCount * 0.2) * 4);
+    ellipse(player.x, player.y - 18, 38 + chargeRatio * 26 + sin(visualFrame * 0.2) * 4);
     stroke(210, 250, 255, 100);
     arc(player.x, player.y - 18, 54 + chargeRatio * 28, 54 + chargeRatio * 28,
         -HALF_PI, -HALF_PI + TWO_PI * chargeRatio, OPEN);
     if (maxCharged && !secretCharging) {
-        const pulse = 0.5 + sin(frameCount * 0.2) * 0.5;
+        const pulse = 0.5 + sin(visualFrame * 0.2) * 0.5;
         stroke(255, 210, 105, 180 + pulse * 75);
         strokeWeight(2.5 + pulse * 2);
         ellipse(player.x, player.y - 18, 92 + pulse * 12);
@@ -1993,7 +2056,7 @@ function drawBeamChargeEffects() {
         ellipse(player.x, player.y - 18, 112 + pulse * 18);
         strokeWeight(2);
         for (let ray = 0; ray < 12; ray++) {
-            const angle = TWO_PI * ray / 12 + frameCount * 0.018;
+            const angle = TWO_PI * ray / 12 + visualFrame * 0.018;
             const innerRadius = 42 + pulse * 5;
             const outerRadius = 56 + pulse * 17;
             line(
@@ -2005,7 +2068,7 @@ function drawBeamChargeEffects() {
         }
     }
     if (secretCharging || purpleReady) {
-        const pulse = 0.5 + sin(frameCount * 0.24) * 0.5;
+        const pulse = 0.5 + sin(visualFrame * 0.24) * 0.5;
         stroke(purpleReady ? 190 : 255, purpleReady ? 105 : 165,
             purpleReady ? 255 : 55, 160 + pulse * 90);
         strokeWeight(2 + pulse * 2);
@@ -2017,7 +2080,7 @@ function drawBeamChargeEffects() {
         stroke(purpleReady ? 235 : 255, purpleReady ? 185 : 230,
             purpleReady ? 255 : 165, 180);
         for (let arcIndex = 0; arcIndex < 4; arcIndex++) {
-            const angle = frameCount * 0.06 + arcIndex * HALF_PI;
+            const angle = visualFrame * 0.06 + arcIndex * HALF_PI;
             const x = player.x + cos(angle) * (70 + pulse * 8);
             const y = player.y - 18 + sin(angle) * (70 + pulse * 8);
             line(x - 5, y, x + 5, y);
@@ -2201,7 +2264,7 @@ function drawHud() {
     const barY = beamPanelY + 40;
     const barWidth = beamPanelWidth - 16;
     const barHeight = 8;
-    const panelPulse = isMaxCharged ? 0.5 + sin(frameCount * 0.2) * 0.5 : 0;
+    const panelPulse = isMaxCharged ? 0.5 + sin(visualFrame * 0.2) * 0.5 : 0;
     const chargeColor = isMaxCharged
         ? (isPurpleReady ? beamChargeColors.purple : beamChargeColors.max)
         : (isReady ? beamChargeColors.ready : beamChargeColors.charging);
@@ -2255,13 +2318,13 @@ function drawHud() {
     fill(chargeColor[0], chargeColor[1], chargeColor[2]);
     rect(barX, barY + 1, barWidth * chargeRatio, barHeight - 2, 3);
     if (isMaxCharged) {
-        const glintX = barX + ((frameCount * (isPurpleReady ? 4.5 : 2.5)) % barWidth);
+        const glintX = barX + ((visualFrame * (isPurpleReady ? 4.5 : 2.5)) % barWidth);
         fill(255, 235, 255, 220);
         rect(glintX, barY + 1, isPurpleReady ? 5 : 3, barHeight - 2, 2);
         const sparkCount = isPurpleReady ? 8 : 5;
         for (let spark = 0; spark < sparkCount; spark++) {
             const orbit = isPurpleReady ? 57 : 51;
-            const angle = frameCount * (isPurpleReady ? 0.07 : 0.035) + spark * TWO_PI / sparkCount;
+            const angle = visualFrame * (isPurpleReady ? 0.07 : 0.035) + spark * TWO_PI / sparkCount;
             const sparkX = beamPanelX + beamPanelWidth / 2 + cos(angle) * orbit;
             const sparkY = beamPanelY + beamPanelHeight / 2 + sin(angle) * (isPurpleReady ? 31 : 27);
             fill(isPurpleReady ? 225 : 255, isPurpleReady ? 175 : 210,
@@ -2297,7 +2360,7 @@ function drawHud() {
 }
 
 function drawTitleScreen() {
-    const pulse = sin(frameCount * 0.08) * 0.5 + 0.5;
+    const pulse = sin(visualFrame * 0.08) * 0.5 + 0.5;
     push();
     rectMode(CENTER);
     drawingContext.shadowBlur = 28;
@@ -2326,7 +2389,7 @@ function drawTitleScreen() {
     text('6 STAGES  /  6 BOSSES', width / 2, height * 0.39);
     fill(180, 220, 235);
     textSize(14);
-    text('SPACE / Z で発射   B でビーム     H でハードモード', width / 2, height * 0.58);
+    text('SPACE / Z で発射   B でビーム   L でハードモード', width / 2, height * 0.58);
     fill(135, 175, 205);
     textSize(11);
     const lastRun = playerRecord.history[0];
@@ -2363,6 +2426,59 @@ function drawTitleScreen() {
         : '新規開始 / ENTER / SPACE で開始',
     width / 2, height * 0.79);
     textStyle(NORMAL);
+    pop();
+}
+
+function drawPauseMenu() {
+    const centerY = height / 2;
+    const panelWidth = min(width - 36, 400);
+    const panelHeight = 270;
+    const buttonWidth = min(panelWidth - 48, 280);
+    const buttonHeight = 44;
+    const resumeY = centerY + 12;
+    const titleY = centerY + 68;
+
+    push();
+    rectMode(CORNER);
+    noStroke();
+    fill(2, 7, 18, 195);
+    rect(0, 0, width, height);
+    rectMode(CENTER);
+    fill(5, 14, 30, 250);
+    stroke(85, 190, 235, 210);
+    strokeWeight(2);
+    rect(width / 2, centerY, panelWidth, panelHeight, 18);
+
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textStyle(BOLD);
+    fill(125, 235, 255);
+    textSize(28);
+    text('PAUSED', width / 2, centerY - 78);
+    fill(200, 220, 235);
+    textSize(13);
+    text('一時停止中', width / 2, centerY - 48);
+
+    fill(12, 42, 58, 255);
+    stroke(85, 220, 235, 210);
+    strokeWeight(1.5);
+    rect(width / 2, resumeY, buttonWidth, buttonHeight, 8);
+    noStroke();
+    fill(170, 245, 255);
+    textSize(15);
+    text('ゲームを再開', width / 2, resumeY);
+
+    fill(45, 28, 35, 255);
+    stroke(240, 165, 105, 190);
+    rect(width / 2, titleY, buttonWidth, buttonHeight, 8);
+    noStroke();
+    fill(255, 215, 165);
+    text('タイトル画面へ', width / 2, titleY);
+
+    fill(160, 185, 205);
+    textStyle(NORMAL);
+    textSize(10);
+    text('P / ESC / ENTER: 再開　　T: タイトルへ', width / 2, centerY + 112);
     pop();
 }
 
@@ -2511,21 +2627,19 @@ function drawAchievementNotice() {
         toastX + toastWidth / 2 - 15, toastY + 12);
     textStyle(NORMAL);
     pop();
-    achievementNoticeFrames--;
-    if (achievementNoticeFrames <= 0) startNextAchievementNotice();
 }
 
 function drawResult(message) {
     const isGameOver = message === 'GAME OVER';
-    const pulse = sin(frameCount * (isGameOver ? 0.18 : 0.08)) * 0.5 + 0.5;
+    const pulse = sin(visualFrame * (isGameOver ? 0.18 : 0.08)) * 0.5 + 0.5;
     const accent = isGameOver ? resultAccents.gameOver : resultAccents.clear;
 
     push();
     translate(width / 2, height / 2);
     for (let ray = 0; ray < 18; ray++) {
-        const angle = TWO_PI * ray / 18 + frameCount * (isGameOver ? 0.012 : 0.004);
+        const angle = TWO_PI * ray / 18 + visualFrame * (isGameOver ? 0.012 : 0.004);
         const inner = isGameOver ? 115 : 90;
-        const outer = 260 + sin(frameCount * 0.06 + ray) * 28;
+        const outer = 260 + sin(visualFrame * 0.06 + ray) * 28;
         stroke(accent[0], accent[1], accent[2], isGameOver ? 18 : 24);
         strokeWeight(ray % 3 === 0 ? 3 : 1);
         line(cos(angle) * inner, sin(angle) * inner, cos(angle) * outer, sin(angle) * outer);
@@ -2534,9 +2648,9 @@ function drawResult(message) {
 
     noStroke();
     for (let spark = 0; spark < 34; spark++) {
-        const x = (spark * 97 + frameCount * (isGameOver ? 2.2 : 0.7)) % width;
-        const y = (spark * 137 + frameCount * (isGameOver ? 3.8 : 1.4)) % height;
-        fill(accent[0], accent[1], accent[2], 70 + sin(frameCount * 0.12 + spark) * 55);
+        const x = (spark * 97 + visualFrame * (isGameOver ? 2.2 : 0.7)) % width;
+        const y = (spark * 137 + visualFrame * (isGameOver ? 3.8 : 1.4)) % height;
+        fill(accent[0], accent[1], accent[2], 70 + sin(visualFrame * 0.12 + spark) * 55);
         ellipse(x, y, spark % 5 === 0 ? 5 : 2.5);
     }
 
@@ -2633,6 +2747,7 @@ function resetGame() {
     lives = maxLives;
     stage = 1;
     upgradeSelection = false;
+    paused = false;
     upgradeLevels.rapidFire = 0;
     upgradeLevels.movement = 0;
     upgradeLevels.beam = 0;
@@ -2646,6 +2761,7 @@ function resetGame() {
     player.speed = basePlayerSpeed;
     shotCooldown = 0;
     simulationAccumulator = 0;
+    visualAccumulator = 0;
     simulationFrame = 0;
     lastSimulationUpdateAt = millis();
 }
@@ -2776,6 +2892,16 @@ function keyPressed() {
         return false;
     }
 
+    if (paused) {
+        if (keyCode === ESCAPE || keyCode === ENTER
+            || key === 'P' || key === 'p' || keyCode === 80) {
+            togglePause();
+        } else if (key === 'T' || key === 't' || keyCode === 84) {
+            returnToTitle();
+        }
+        return false;
+    }
+
     // Toggle hard mode while the game is running.
     if (titleScreen) {
         if (key === 'A' || key === 'a') {
@@ -2808,6 +2934,11 @@ function keyPressed() {
             resetGame();
             titleScreen = true;
         }
+        return false;
+    }
+
+    if (keyCode === ESCAPE || key === 'P' || key === 'p' || keyCode === 80) {
+        togglePause();
         return false;
     }
 
@@ -2852,8 +2983,24 @@ function mousePressed() {
         return false;
     }
 
+    if (paused) {
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const buttonWidth = min(min(width - 36, 400) - 48, 280);
+        const buttonHeight = 44;
+        if (mouseX >= centerX - buttonWidth / 2
+            && mouseX <= centerX + buttonWidth / 2) {
+            if (abs(mouseY - (centerY + 12)) <= buttonHeight / 2) {
+                togglePause();
+            } else if (abs(mouseY - (centerY + 68)) <= buttonHeight / 2) {
+                returnToTitle();
+            }
+        }
+        return false;
+    }
+
     if (titleScreen) {
-        if (mouseY >= height * 0.70 && mouseY <= height * 0.745
+        if (mouseY >= height * 0.735 - 15 && mouseY <= height * 0.735 + 15
             && mouseX >= width / 2 - 130 && mouseX <= width / 2 + 130) {
             achievementsScreen = true;
             return false;
